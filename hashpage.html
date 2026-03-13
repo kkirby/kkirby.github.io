@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hashpage</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: system-ui, sans-serif;
+    background: #0f0f0f;
+    color: #e0e0e0;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem;
+  }
+  .card {
+    background: #1a1a1a;
+    border: 1px solid #2a2a2a;
+    border-radius: 12px;
+    padding: 2rem;
+    width: 100%;
+    max-width: 520px;
+  }
+  h1 { font-size: 1.3rem; font-weight: 600; margin-bottom: 1.5rem; color: #fff; }
+  label { display: block; font-size: 0.8rem; color: #888; margin-bottom: 0.35rem; }
+  textarea, input[type="text"], input[type="password"] {
+    width: 100%;
+    background: #0f0f0f;
+    border: 1px solid #333;
+    border-radius: 8px;
+    color: #e0e0e0;
+    font-family: inherit;
+    font-size: 0.95rem;
+    padding: 0.6rem 0.8rem;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  textarea:focus, input:focus { border-color: #555; }
+  textarea { resize: vertical; min-height: 120px; }
+  .field { margin-bottom: 1rem; }
+  button {
+    background: #2d6cdf;
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    padding: 0.65rem 1.2rem;
+    font-size: 0.95rem;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  button:hover { background: #3a7dee; }
+  button:disabled { background: #333; color: #666; cursor: default; }
+  .result-box {
+    margin-top: 1.2rem;
+    background: #0f0f0f;
+    border: 1px solid #2a2a2a;
+    border-radius: 8px;
+    padding: 0.8rem;
+    font-size: 0.82rem;
+    word-break: break-all;
+    color: #aaa;
+  }
+  .result-box a { color: #6ab0ff; text-decoration: none; }
+  .result-box a:hover { text-decoration: underline; }
+  .copy-btn {
+    background: #222;
+    font-size: 0.8rem;
+    padding: 0.3rem 0.7rem;
+    margin-top: 0.6rem;
+    border: 1px solid #333;
+  }
+  .copy-btn:hover { background: #2a2a2a; }
+  .error { color: #f87171; font-size: 0.85rem; margin-top: 0.6rem; }
+  .decoded-output { line-height: 1.6; white-space: pre-wrap; word-break: break-word; }
+</style>
+</head>
+<body>
+<div class="card" id="app"></div>
+<script>
+// ── Utilities ────────────────────────────────────────────────────────────────
+
+function b64uEncode(bytes) {
+  let bin = '';
+  bytes.forEach(b => bin += String.fromCharCode(b));
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+}
+
+function b64uDecode(str) {
+  str = str.replace(/-/g, '+').replace(/_/g, '/');
+  while (str.length % 4) str += '=';
+  const bin = atob(str);
+  return Uint8Array.from(bin, c => c.charCodeAt(0));
+}
+
+function encodePassword(pw) {
+  return b64uEncode(new TextEncoder().encode(pw));
+}
+
+function decodePassword(encoded) {
+  return new TextDecoder().decode(b64uDecode(encoded));
+}
+
+// Derive AES-GCM key from password string
+async function deriveKey(password, usage) {
+  const raw = new TextEncoder().encode(password);
+  const keyMaterial = await crypto.subtle.importKey('raw', raw, 'PBKDF2', false, ['deriveKey']);
+  // Use a fixed well-known salt — the security here is the password itself,
+  // and we want deterministic decryption from the URL alone.
+  const salt = new TextEncoder().encode('hashpage-v1');
+  return crypto.subtle.deriveKey(
+    { name: 'PBKDF2', salt, iterations: 200_000, hash: 'SHA-256' },
+    keyMaterial,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    [usage]
+  );
+}
+
+// Encrypt plaintext → base64url string (IV[12] + ciphertext + tag[16])
+async function encrypt(plaintext, password) {
+  const key = await deriveKey(password, 'encrypt');
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv },
+    key,
+    new TextEncoder().encode(plaintext)
+  );
+  const combined = new Uint8Array(12 + ct.byteLength);
+  combined.set(iv, 0);
+  combined.set(new Uint8Array(ct), 12);
+  return b64uEncode(combined);
+}
+
+// Decrypt base64url string → plaintext (throws on bad key/tamper)
+async function decrypt(encoded, password) {
+  const bytes = b64uDecode(encoded);
+  const iv = bytes.slice(0, 12);
+  const ct = bytes.slice(12);
+  const key = await deriveKey(password, 'decrypt');
+  const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ct);
+  return new TextDecoder().decode(plain);
+}
+
+// ── URL parsing ───────────────────────────────────────────────────────────────
+
+const rawSearch = location.search;          // "?..." or ""
+const rawHash   = location.hash;            // "#..." or ""
+const hasQuery  = rawSearch.length > 1;     // has content after "?"
+const hasHash   = rawHash.length > 1;       // has content after "#"
+const encMsg    = hasQuery ? rawSearch.slice(1) : null;
+const encPw     = hasHash  ? rawHash.slice(1)   : null;
+
+// ── UI helpers ────────────────────────────────────────────────────────────────
+
+const app = document.getElementById('app');
+
+function setHTML(html) { app.innerHTML = html; }
+
+// ── Mode 1: Encode form (no query string) ─────────────────────────────────────
+
+function showEncodeForm() {
+  setHTML(`
+    <h1>Hashpage — create a secret link</h1>
+    <div class="field">
+      <label>Message</label>
+      <textarea id="msg" placeholder="Type your secret message…"></textarea>
+    </div>
+    <div class="field">
+      <label>Password</label>
+      <input type="password" id="pw" placeholder="Enter a password">
+    </div>
+    <button id="genBtn">Generate link</button>
+    <div id="out"></div>
+  `);
+
+  document.getElementById('genBtn').addEventListener('click', async () => {
+    const msg = document.getElementById('msg').value.trim();
+    const pw  = document.getElementById('pw').value;
+    const out = document.getElementById('out');
+    if (!msg) { out.innerHTML = '<p class="error">Message is empty.</p>'; return; }
+    if (!pw)  { out.innerHTML = '<p class="error">Password is empty.</p>'; return; }
+
+    const btn = document.getElementById('genBtn');
+    btn.disabled = true;
+    btn.textContent = 'Encrypting…';
+    out.innerHTML = '';
+
+    try {
+      const encryptedMsg = await encrypt(msg, pw);
+      const encodedPw    = encodePassword(pw);
+      const url = `${location.origin}${location.pathname}?${encryptedMsg}#${encodedPw}`;
+      out.innerHTML = `
+        <div class="result-box">
+          <a href="${url}" target="_blank">${url}</a>
+        </div>
+        <button class="copy-btn" id="copyBtn">Copy link</button>
+      `;
+      document.getElementById('copyBtn').addEventListener('click', () => {
+        navigator.clipboard.writeText(url).then(() => {
+          document.getElementById('copyBtn').textContent = 'Copied!';
+          setTimeout(() => { document.getElementById('copyBtn').textContent = 'Copy link'; }, 1500);
+        });
+      });
+    } catch (e) {
+      out.innerHTML = `<p class="error">Encryption failed: ${e.message}</p>`;
+    }
+
+    btn.disabled = false;
+    btn.textContent = 'Generate link';
+  });
+}
+
+// ── Mode 2: Password prompt (query present, no hash) ──────────────────────────
+
+function showPasswordPrompt() {
+  setHTML(`
+    <h1>Hashpage — enter password</h1>
+    <p style="color:#888;font-size:.85rem;margin-bottom:1.2rem;">
+      This link contains an encrypted message. Enter the password to read it.
+    </p>
+    <div class="field">
+      <label>Password</label>
+      <input type="password" id="pw" placeholder="Enter password" autofocus>
+    </div>
+    <button id="decBtn">Decrypt</button>
+    <div id="out"></div>
+  `);
+
+  async function doDecrypt() {
+    const pw  = document.getElementById('pw').value;
+    const out = document.getElementById('out');
+    if (!pw) { out.innerHTML = '<p class="error">Password is empty.</p>'; return; }
+
+    const btn = document.getElementById('decBtn');
+    btn.disabled = true;
+    btn.textContent = 'Decrypting…';
+    out.innerHTML = '';
+
+    try {
+      const plaintext = await decrypt(encMsg, pw);
+      document.write(plaintext);
+    } catch {
+      out.innerHTML = '<p class="error">Wrong password or corrupted data.</p>';
+      btn.disabled = false;
+      btn.textContent = 'Decrypt';
+    }
+  }
+
+  document.getElementById('decBtn').addEventListener('click', doDecrypt);
+  document.getElementById('pw').addEventListener('keydown', e => {
+    if (e.key === 'Enter') doDecrypt();
+  });
+}
+
+// ── Mode 3: Decrypt and display ───────────────────────────────────────────────
+
+async function showDecrypted() {
+  setHTML(`<p style="color:#666;font-size:.9rem;">Decrypting…</p>`);
+  try {
+    const pw        = decodePassword(encPw);
+    const plaintext = await decrypt(encMsg, pw);
+    document.write(plaintext);
+  } catch {
+    setHTML(`
+      <h1>Hashpage</h1>
+      <p class="error" style="margin-top:.5rem">
+        Decryption failed — the key in the URL does not match the encrypted message,
+        or the data is corrupted.
+      </p>
+    `);
+  }
+}
+
+// ── Route ─────────────────────────────────────────────────────────────────────
+
+if (!hasQuery) {
+  showEncodeForm();
+} else if (!hasHash) {
+  showPasswordPrompt();
+} else {
+  showDecrypted();
+}
+</script>
+</body>
+</html>
