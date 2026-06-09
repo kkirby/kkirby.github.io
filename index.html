@@ -4,20 +4,108 @@
   <meta charset="utf-8">
   <meta http-equiv="x-ua-compatible" content="ie=edge">
   <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+  <title>Kyle Kirbatski | Software Engineer</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #f5f7fb;
+      --card: #ffffff;
+      --text: #101828;
+      --muted: #475467;
+      --accent: #1d4ed8;
+      --border: #e4e7ec;
+    }
 
-  <title>Kyle Kirbatski's GitHub Page</title>
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0b1220;
+        --card: #111927;
+        --text: #e2e8f0;
+        --muted: #94a3b8;
+        --accent: #60a5fa;
+        --border: #1f2937;
+      }
+    }
 
-  
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: radial-gradient(circle at top left, rgba(59, 130, 246, 0.15), transparent 45%), var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 2rem 1rem;
+    }
+
+    main {
+      width: 100%;
+      max-width: 760px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 2rem;
+      box-shadow: 0 8px 28px rgba(15, 23, 42, 0.08);
+    }
+
+    h1 {
+      margin: 0 0 0.5rem;
+      font-size: clamp(1.8rem, 2.6vw, 2.4rem);
+      line-height: 1.2;
+    }
+
+    .subtitle {
+      margin: 0 0 1.4rem;
+      color: var(--muted);
+      font-size: 1.05rem;
+    }
+
+    h2 {
+      margin-top: 1.8rem;
+      margin-bottom: 0.8rem;
+      font-size: 1.05rem;
+      letter-spacing: 0.01em;
+    }
+
+    ul {
+      margin: 0;
+      padding-left: 1.25rem;
+    }
+
+    li {
+      margin: 0.45rem 0;
+    }
+
+    a {
+      color: var(--accent);
+      text-decoration: none;
+      font-weight: 600;
+    }
+
+    a:hover,
+    a:focus-visible {
+      text-decoration: underline;
+    }
+  </style>
 </head>
 <body>
+  <main>
+    <h1>Kyle Kirbatski</h1>
+    <p class="subtitle">Software Engineer</p>
 
-<h1>Hello</h1>
+    <h2>Projects</h2>
+    <ul>
+      <li><a href="./timing-calculator-app">Timing Calculator App</a></li>
+      <li><a href="https://kkirby.github.io/power-wash-2-texts/">Power Wash 2 Texts</a></li>
+    </ul>
 
-<ul>
-  <li>
-    <a href="./timing-calculator-app">Timing Calculator App</a>
-  </li>
-</ul>
-  
+    <h2>Connect</h2>
+    <ul>
+      <li><a href="https://github.com/kkirby" rel="noopener noreferrer" target="_blank">GitHub (@kkirby)</a></li>
+      <li><a href="https://www.linkedin.com/in/kkirbatski?utm_source=share_via&amp;utm_content=profile&amp;utm_medium=member_ios" rel="noopener noreferrer" target="_blank">LinkedIn</a></li>
+    </ul>
+  </main>
 </body>
 </html>
