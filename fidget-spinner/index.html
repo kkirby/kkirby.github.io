@@ -1,0 +1,377 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+  <title>Fidget Spinner</title>
+  <style>
+    html, body, #root { margin: 0; padding: 0; height: 100%; }
+  </style>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js" crossorigin></script>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel" data-presets="react">
+    const { useState, useEffect, useRef, useCallback } = React;
+
+    // friction range: 0.97 (sticky) to 0.999 (frictionless)
+    const frictionFromResistance = (r) => 1.0 - r * 0.03;
+
+    function FidgetSpinner() {
+      const [angle, setAngle] = useState(0);
+      const [spins, setSpins] = useState(0);
+      const [resistance, setResistance] = useState(0.5);
+      const angleRef = useRef(0);
+      const velocityRef = useRef(0);
+      const rafRef = useRef(null);
+      const lastPointerAngle = useRef(null);
+      const lastPointerTime = useRef(null);
+      const isDragging = useRef(false);
+      const spinnerRef = useRef(null);
+      const prevPointerAngle = useRef(null);
+      const prevPointerTime = useRef(null);
+      const resistanceRef = useRef(0.5);
+      const totalAngleRef = useRef(0);
+      const lastSpinCountAngle = useRef(0);
+
+      useEffect(() => {
+        resistanceRef.current = resistance;
+      }, [resistance]);
+
+      const loop = useCallback(() => {
+        if (!isDragging.current) {
+          const friction = frictionFromResistance(resistanceRef.current);
+          velocityRef.current *= friction;
+          angleRef.current += velocityRef.current;
+
+          // Track full rotations (360 deg each)
+          const delta = angleRef.current - lastSpinCountAngle.current;
+          if (Math.abs(delta) >= 360) {
+            const completed = Math.floor(Math.abs(delta) / 360);
+            setSpins(s => s + completed);
+            lastSpinCountAngle.current += Math.sign(delta) * completed * 360;
+          }
+
+          setAngle(angleRef.current);
+        }
+        rafRef.current = requestAnimationFrame(loop);
+      }, []);
+
+      useEffect(() => {
+        rafRef.current = requestAnimationFrame(loop);
+        return () => cancelAnimationFrame(rafRef.current);
+      }, [loop]);
+
+      const getPointerAngle = (e) => {
+        const rect = spinnerRef.current.getBoundingClientRect();
+        const cx = rect.left + rect.width / 2;
+        const cy = rect.top + rect.height / 2;
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+        return Math.atan2(clientY - cy, clientX - cx) * (180 / Math.PI);
+      };
+
+      const onPointerDown = (e) => {
+        e.preventDefault();
+        isDragging.current = true;
+        const a = getPointerAngle(e);
+        lastPointerAngle.current = a;
+        prevPointerAngle.current = a;
+        lastPointerTime.current = performance.now();
+        prevPointerTime.current = performance.now();
+        velocityRef.current = 0;
+      };
+
+      const onPointerMove = (e) => {
+        if (!isDragging.current) return;
+        e.preventDefault();
+        const now = performance.now();
+        const a = getPointerAngle(e);
+        let delta = a - lastPointerAngle.current;
+        if (delta > 180) delta -= 360;
+        if (delta < -180) delta += 360;
+        angleRef.current += delta;
+
+        const delta2 = angleRef.current - lastSpinCountAngle.current;
+        if (Math.abs(delta2) >= 360) {
+          const completed = Math.floor(Math.abs(delta2) / 360);
+          setSpins(s => s + completed);
+          lastSpinCountAngle.current += Math.sign(delta2) * completed * 360;
+        }
+
+        setAngle(angleRef.current);
+
+        const dt = now - prevPointerTime.current;
+        if (dt > 0) {
+          let rawDelta = a - prevPointerAngle.current;
+          if (rawDelta > 180) rawDelta -= 360;
+          if (rawDelta < -180) rawDelta += 360;
+          velocityRef.current = rawDelta / dt * 16;
+        }
+
+        prevPointerAngle.current = lastPointerAngle.current;
+        prevPointerTime.current = lastPointerTime.current;
+        lastPointerAngle.current = a;
+        lastPointerTime.current = now;
+      };
+
+      const onPointerUp = () => {
+        isDragging.current = false;
+      };
+
+      useEffect(() => {
+        const el = spinnerRef.current;
+        el.addEventListener("touchstart", onPointerDown, { passive: false });
+        window.addEventListener("mousemove", onPointerMove);
+        window.addEventListener("mouseup", onPointerUp);
+        window.addEventListener("touchmove", onPointerMove, { passive: false });
+        window.addEventListener("touchend", onPointerUp);
+        return () => {
+          el.removeEventListener("touchstart", onPointerDown);
+          window.removeEventListener("mousemove", onPointerMove);
+          window.removeEventListener("mouseup", onPointerUp);
+          window.removeEventListener("touchmove", onPointerMove);
+          window.removeEventListener("touchend", onPointerUp);
+        };
+      }, []);
+
+      const rpm = Math.abs(velocityRef.current / 6 * 60).toFixed(0);
+      const isSpinning = Math.abs(velocityRef.current) > 0.5;
+      const lobes = [0, 120, 240];
+
+      const labelStyle = {
+        fontSize: 10,
+        color: "#00ffb4",
+        letterSpacing: "0.3em",
+        opacity: 0.5,
+        marginBottom: 4,
+        textTransform: "uppercase",
+      };
+      const valueStyle = (glow) => ({
+        fontSize: 40,
+        color: "#00ffb4",
+        letterSpacing: "0.05em",
+        fontVariantNumeric: "tabular-nums",
+        textShadow: glow ? "0 0 20px rgba(0,255,180,0.6)" : "none",
+        transition: "text-shadow 0.3s",
+        lineHeight: 1,
+      });
+
+      return (
+        <div style={{
+          minHeight: "100vh",
+          background: "#0a0a0f",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          fontFamily: "'Courier New', monospace",
+          userSelect: "none",
+          overflow: "hidden",
+          position: "relative",
+        }}>
+          {/* Background grid */}
+          <div style={{
+            position: "absolute",
+            inset: 0,
+            backgroundImage: `
+              linear-gradient(rgba(0,255,180,0.04) 1px, transparent 1px),
+              linear-gradient(90deg, rgba(0,255,180,0.04) 1px, transparent 1px)
+            `,
+            backgroundSize: "40px 40px",
+            pointerEvents: "none",
+          }} />
+
+          {/* Glow under spinner */}
+          <div style={{
+            position: "absolute",
+            width: 320,
+            height: 320,
+            borderRadius: "50%",
+            background: `radial-gradient(circle, rgba(0,255,180,${isSpinning ? 0.12 : 0.04}) 0%, transparent 70%)`,
+            transition: "background 0.5s",
+            pointerEvents: "none",
+          }} />
+
+          <div
+            ref={spinnerRef}
+            onMouseDown={onPointerDown}
+            style={{
+              width: 280,
+              height: 280,
+              position: "relative",
+              cursor: isDragging.current ? "grabbing" : "grab",
+              transform: `rotate(${angle}deg)`,
+              zIndex: 1,
+              touchAction: "none",
+            }}
+          >
+            <svg viewBox="-140 -140 280 280" width="280" height="280">
+              <defs>
+                <radialGradient id="lobeGrad" cx="50%" cy="50%" r="50%">
+                  <stop offset="0%" stopColor="#2a2a3a" />
+                  <stop offset="100%" stopColor="#141420" />
+                </radialGradient>
+                <radialGradient id="centerGrad" cx="50%" cy="50%" r="50%">
+                  <stop offset="0%" stopColor="#303045" />
+                  <stop offset="100%" stopColor="#1a1a28" />
+                </radialGradient>
+                <filter id="glow">
+                  <feGaussianBlur stdDeviation="3" result="coloredBlur" />
+                  <feMerge>
+                    <feMergeNode in="coloredBlur" />
+                    <feMergeNode in="SourceGraphic" />
+                  </feMerge>
+                </filter>
+                <filter id="innerShadow">
+                  <feDropShadow dx="0" dy="2" stdDeviation="3" floodColor="#000" floodOpacity="0.5" />
+                </filter>
+              </defs>
+
+              {lobes.map((rot, i) => (
+                <g key={i} transform={`rotate(${rot})`}>
+                  <circle cx="0" cy="-85" r="42" fill="url(#lobeGrad)" stroke="#00ffb4" strokeWidth="1.5" filter="url(#innerShadow)" />
+                  <circle cx="0" cy="-85" r="30" fill="none" stroke="#00ffb4" strokeWidth="0.5" opacity="0.4" />
+                  <circle cx="0" cy="-85" r="10" fill="#0a0a15" stroke="#00ffb4" strokeWidth="1" />
+                  <circle cx="0" cy="-85" r="3" fill="#00ffb4" filter="url(#glow)" opacity={isSpinning ? 0.9 : 0.5} />
+                  <rect x="-10" y="-46" width="20" height="48" rx="10" fill="#1a1a28" stroke="#00ffb4" strokeWidth="0.8" opacity="0.8" />
+                </g>
+              ))}
+
+              <circle r="28" fill="url(#centerGrad)" stroke="#00ffb4" strokeWidth="2" />
+              <circle r="20" fill="none" stroke="#00ffb4" strokeWidth="0.5" opacity="0.3" />
+              <circle r="10" fill="#0a0a15" stroke="#00ffb4" strokeWidth="1.5" />
+              <circle r="4" fill="#00ffb4" filter="url(#glow)" opacity="0.9" />
+              <circle r="28" fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="4" strokeDasharray="30 100" strokeDashoffset="10" />
+            </svg>
+          </div>
+
+          {/* Stats row */}
+          <div style={{
+            display: "flex",
+            gap: 48,
+            marginTop: 36,
+            zIndex: 1,
+            textAlign: "center",
+          }}>
+            <div>
+              <div style={labelStyle}>RPM</div>
+              <div style={valueStyle(isSpinning)}>{rpm}</div>
+            </div>
+            <div>
+              <div style={labelStyle}>SPINS</div>
+              <div style={valueStyle(false)}>{spins}</div>
+            </div>
+          </div>
+
+          {/* Resistance slider */}
+          <div style={{
+            marginTop: 32,
+            zIndex: 1,
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            gap: 10,
+            width: 220,
+          }}>
+            <div style={{ display: "flex", justifyContent: "space-between", width: "100%" }}>
+              <span style={{ ...labelStyle, marginBottom: 0, opacity: 0.4 }}>RESISTANCE</span>
+              <span style={{ ...labelStyle, marginBottom: 0, opacity: 0.7, letterSpacing: "0.1em" }}>
+                {resistance < 0.2 ? "NONE" : resistance < 0.45 ? "LOW" : resistance < 0.7 ? "MED" : resistance < 0.9 ? "HIGH" : "MAX"}
+              </span>
+            </div>
+            <div style={{ position: "relative", width: "100%", height: 24, display: "flex", alignItems: "center" }}>
+              {/* Track */}
+              <div style={{
+                position: "absolute",
+                width: "100%",
+                height: 2,
+                background: "rgba(0,255,180,0.15)",
+                borderRadius: 1,
+              }} />
+              {/* Fill */}
+              <div style={{
+                position: "absolute",
+                width: `${resistance * 100}%`,
+                height: 2,
+                background: "#00ffb4",
+                borderRadius: 1,
+                boxShadow: "0 0 6px rgba(0,255,180,0.6)",
+              }} />
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.01"
+                value={resistance}
+                onChange={e => setResistance(parseFloat(e.target.value))}
+                style={{
+                  position: "absolute",
+                  width: "100%",
+                  opacity: 0,
+                  cursor: "pointer",
+                  height: 24,
+                  margin: 0,
+                }}
+              />
+              {/* Thumb */}
+              <div style={{
+                position: "absolute",
+                left: `calc(${resistance * 100}% - 7px)`,
+                width: 14,
+                height: 14,
+                borderRadius: "50%",
+                background: "#0a0a0f",
+                border: "2px solid #00ffb4",
+                boxShadow: "0 0 8px rgba(0,255,180,0.5)",
+                pointerEvents: "none",
+              }} />
+            </div>
+          </div>
+
+          {/* Reset + instruction row */}
+          <div style={{
+            marginTop: 20,
+            zIndex: 1,
+            display: "flex",
+            gap: 24,
+            alignItems: "center",
+          }}>
+            <button
+              onClick={() => setSpins(0)}
+              style={{
+                background: "none",
+                border: "1px solid rgba(0,255,180,0.3)",
+                color: "#00ffb4",
+                fontFamily: "'Courier New', monospace",
+                fontSize: 9,
+                letterSpacing: "0.25em",
+                textTransform: "uppercase",
+                padding: "5px 12px",
+                cursor: "pointer",
+                opacity: 0.5,
+              }}
+            >
+              RESET
+            </button>
+            <span style={{
+              fontSize: 10,
+              color: "#00ffb4",
+              letterSpacing: "0.25em",
+              opacity: 0.25,
+              textTransform: "uppercase",
+            }}>
+              drag to spin
+            </span>
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById("root"));
+    root.render(<FidgetSpinner />);
+  </script>
+</body>
+</html>
